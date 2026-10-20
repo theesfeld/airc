@@ -1,0 +1,19 @@
+# aIRC configuration. Account passwords and provider keys are not stored here.
+server:
+  name: irc.example.com
+  network: aIRC
+  listen: ":6697"
+
+data:
+  # Database, encryption key, and TLS certificate.
+  directory: data
+
+limits:
+  # PBKDF2-HMAC-SHA256 iterations for SASL SCRAM-SHA-256 and PLAIN.
+  scram_iterations: 600000
+  auth_failures: 5
+  auth_ban: 10m
+  replay: 100
+  context_messages: 40
+  provider_timeout: 180s
+  max_connections: 1000

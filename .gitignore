@@ -1,0 +1,7 @@
+/airc
+/data/
+/airc.yaml
+*.db
+*.db-*
+*.pem
+secret.key

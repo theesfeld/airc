@@ -1,0 +1,24 @@
+[Unit]
+Description=aIRC
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=airc
+Group=airc
+WorkingDirectory=/var/lib/airc
+ExecStart=/usr/local/bin/airc run -config /var/lib/airc/airc.yaml
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/airc
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

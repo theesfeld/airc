@@ -1,0 +1,8 @@
+.git
+/airc
+/data
+*.db
+*.db-*
+*.pem
+secret.key
+airc.yaml
