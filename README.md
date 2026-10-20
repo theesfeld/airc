@@ -1,58 +1,53 @@
 # aIRC
 
-aIRC is an IRC server that does one thing: private chat with an AI.
+Chat with an AI from the IRC client you already use.
 
-Any IRC client can connect. The listener is TLS on port 6697. SASL is required before the connection is registered. An AI is a nick that is always present. A session is a private channel that contains only you and that nick.
+aIRC is a small IRC server for that and nothing else. You connect over TLS with SASL. Each AI is a nick that stays online. Each conversation is a private channel with you and that nick.
 
-It is a single static binary. The first run creates the config, a self-signed certificate, an encryption key, and an `admin` account. The admin password is printed once.
+An admin adds the models and the API keys from inside IRC. Everyone else can talk. Keys stay on the server.
 
-## Why a new server
+## Start the server
 
-aIRC is not a plugin for an existing ircd.
-
-A general server is built around linking, operators, services, and open channels. None of those are this product. SASL has to be the only way in, with no PASS-only or anonymous path. An AI nick needs an encrypted provider key and a private session that other users cannot see or join. `RELAYMSG` cannot give a private message its own identity. InspIRCd still hands SASL to a separate services daemon. Ergo can require SASL and disable registration, and it has no plugin API that can limit the server to these chats.
-
-The binary speaks the client protocol: the commands clients send from RFC 1459 and RFC 2812, plus the IRCv3 capabilities listed below. It does not speak server-to-server (RFC 2813).
-
-## Run
-
-Requires Go 1.27.
+You need Go 1.27.
 
 ```sh
+git clone https://github.com/theesfeld/airc.git
+cd airc
 go build -o airc ./cmd/airc
-./airc
+./airc -name irc.example.com
 ```
 
-`./airc` with no arguments creates `airc.yaml` in the working directory when that file is missing, then listens. Relative paths in the config are resolved from the config file's directory.
+The first run creates `airc.yaml`, a database, a self-signed certificate, and an `admin` account. The password is printed once and is not saved:
 
 ```text
 aIRC initialized
   config: airc.yaml
   admin account: admin
   admin password: <shown once>
-aIRC listening on [::]:6697 as irc.localhost
+aIRC listening on [::]:6697 as irc.example.com
 TLS certificate SHA-256: AA:BB:...
 ```
 
-Store the password somewhere else. It is not written to disk. If you lose it:
+Copy the password and the fingerprint somewhere safe. The next start reuses the same files. `-name` and `-listen` are read only while `airc.yaml` is being created. After that, edit the file. `airc.example.yaml` shows every setting.
+
+Lost the admin password:
 
 ```sh
 ./airc reset-password admin
 ```
 
-Other commands: `airc init`, `airc run -config airc.yaml`, `airc version`. `-name` and `-listen` apply only while the config file is being created. After that, edit `airc.yaml`.
+### Docker
 
-`airc.example.yaml` is the same text the first run writes, with a sample server name.
+```sh
+docker build -t airc .
+mkdir -p airc-data
+sudo chown 65532:65532 airc-data
+docker run --rm -p 6697:6697 -v "$PWD/airc-data:/data" airc
+```
 
-### Real certificate
-
-The first run writes a self-signed ECDSA certificate at `data/tls/cert.pem` and `data/tls/key.pem`. Replace both files and restart. aIRC will not overwrite a pair that is already there. Do not advertise SASL STS while the certificate is self-signed.
-
-Clients should check the SHA-256 fingerprint printed at startup before they trust the generated certificate.
+The admin password is in the container output. The data directory has to be writable by uid 65532. The image can call HTTPS model APIs.
 
 ### systemd
-
-`distrib/airc.service` runs the binary as user `airc` with a state directory:
 
 ```sh
 sudo useradd --system --create-home --home-dir /var/lib/airc airc
@@ -63,26 +58,15 @@ sudo systemctl enable --now airc
 sudo journalctl -u airc -e
 ```
 
-The first start prints the admin password in the journal. Port 6697 does not need extra capabilities.
-
-### Docker
-
-The image is a static binary on `gcr.io/distroless/static-debian12:nonroot` (uid 65532). The CA bundle from the build image is copied in, because that base image does not include one and provider HTTPS would fail without it.
-
-```sh
-docker build -t airc .
-mkdir -p airc-data
-sudo chown 65532:65532 airc-data
-docker run --rm -p 6697:6697 -v "$PWD/airc-data:/data" airc
-```
-
-The admin password is in that process's stdout. The volume has to be writable by uid 65532.
+The first start prints the admin password in the journal.
 
 ## Connect
 
-The account name is the nick. You cannot change nicks. There is no plaintext port and no registration from the client. An admin creates every account.
+There is no plaintext port and no public registration. An admin creates every account. Your account name is your nick, and it does not change.
 
-SASL mechanisms: `PLAIN` and `SCRAM-SHA-256`. Prefer SCRAM. `PASS` is accepted during registration and ignored. It is not a login.
+Use SASL `SCRAM-SHA-256` when the client offers it. `PLAIN` also works. A server password (`PASS`) is ignored.
+
+The certificate on a fresh install is self-signed. Check that your client sees the SHA-256 fingerprint aIRC printed at startup before you send the password.
 
 ### WeeChat
 
@@ -96,8 +80,6 @@ SASL mechanisms: `PLAIN` and `SCRAM-SHA-256`. Prefer SCRAM. `PASS` is accepted d
 /connect airc
 ```
 
-`tls_fingerprint` pins the certificate aIRC printed at startup.
-
 ### irssi
 
 ```text
@@ -108,101 +90,108 @@ SASL mechanisms: `PLAIN` and `SCRAM-SHA-256`. Prefer SCRAM. `PASS` is accepted d
 
 ### HexChat
 
-Add a network, enable SSL, and set the SASL mechanism to SCRAM-SHA-256 (or PLAIN) with the account name and password. For the generated certificate, turn certificate verification off and compare the fingerprint HexChat shows with the one aIRC printed.
+Add a network, turn SSL on, and set SASL to SCRAM-SHA-256 (or PLAIN) with your account name and password. For the generated certificate, turn verification off and compare the fingerprint HexChat shows with the one from the server log.
 
-## Chat
+When you have a real certificate, replace `data/tls/cert.pem` and `data/tls/key.pem`, then restart. aIRC leaves an existing pair in place.
 
-IRC clients treat an unknown `/` command as their own command. Talk to the server by messaging the `airc` nick, or send the server command with `/quote`:
+## Talk
+
+Your IRC client keeps slash commands for itself. Message the `airc` nick, or send a server command with `/quote`.
 
 ```text
 /msg airc help
 /quote AIRC help
 ```
 
-Messaging an AI nick continues your latest open session with that nick, or opens one:
+Message an AI nick to open a conversation, or to continue the latest one:
 
 ```text
 /msg helper what is a private channel?
 ```
 
-The server joins you to `#helper-<8 hex>`. That channel is the conversation. `+i` keeps everyone else out. Your modes on it are `+isnt`, and you are `+o`. Leaving the channel does not delete the session. The next login joins it again and replays recent messages.
+aIRC joins you to a channel such as `#helper-1a2b3c4d`. That channel is the transcript. Only you can see it or join it. Say the next line in the channel, or keep messaging the nick.
 
 ```text
-/msg airc session new helper
 /msg airc session list
+/msg airc session new helper
 /msg airc session close #helper-1a2b3c4d
 /msg airc passwd <new-password>
 ```
 
-`session new` always opens another channel, including when one is already open. `PART` only leaves the buffer.
+`session new` opens another channel with the same AI. Leaving the channel keeps the session. The next time you connect, aIRC joins you again and shows the recent lines.
 
-CTCP `VERSION`, `PING`, and `TIME` are answered by the server and are not sent to the model. A CTCP `ACTION` is sent as its text.
+`/me` is delivered as the action text. Version, ping, and time CTCP queries get an answer from the server and are not sent to the model.
 
-## Accounts and models
+## Add a model
 
-Admins manage AI nicks and provider keys in band. Other users can chat. They cannot list or change keys. `ai list` shows `key=set` and never the key.
+Do this from the admin account. The key is stored encrypted. `ai list` prints `key=set` and never the key itself.
+
+xAI, including `grok-build-0.1`:
 
 ```text
-/msg airc ai add helper openai grok-build-0.1 https://api.example.com/v1 sk-...
-/msg airc ai add helper grok grok-build-0.1 xai-...
+/msg airc ai add helper grok grok-build-0.1 <xai-api-key>
+```
+
+That uses `https://api.x.ai/v1`. You choose the model name.
+
+Any OpenAI-compatible chat endpoint (OpenAI, OpenRouter, Ollama, vLLM, and others):
+
+```text
+/msg airc ai add helper openai grok-build-0.1 https://api.example.com/v1 <api-key>
+```
+
+The server sends `POST {base}/chat/completions` with a bearer token. For a program on the same machine, an `http://` URL is accepted for `localhost` and for a literal private address such as `http://127.0.0.1:11434/v1`. Public endpoints need `https://`.
+
+```text
+/msg airc ai list
 /msg airc ai edit helper model grok-4.7
 /msg airc ai edit helper url https://api.example.com/v1
-/msg airc ai edit helper key xai-...
+/msg airc ai edit helper key <new-key>
 /msg airc ai rm helper
-/msg airc user add alice <password of at least 12 characters>
+```
+
+Removing an AI closes its sessions.
+
+## Add people
+
+Passwords you set need at least 12 characters. Names are 1–32 characters: a letter, then letters, digits, `_`, or `-`. `airc`, `nickserv`, and `chanserv` are reserved.
+
+```text
+/msg airc user add alice <password>
 /msg airc user list
 /msg airc user passwd alice <password>
 /msg airc user role alice admin
 /msg airc user rm alice
 ```
 
-`grok` is the OpenAI-compatible xAI API at `https://api.x.ai/v1`. The model id is whatever the admin sets. `grok-build-0.1` is the one these examples use. `openai` is any server that accepts `POST {base}/chat/completions` with `Authorization: Bearer` and `{"model","messages","stream":false}`. That covers OpenAI, OpenRouter, Ollama, and vLLM. Give `openai` an explicit base URL.
+Members can chat and change their own password. They cannot add models or read keys. The last admin cannot be removed or demoted, and you cannot remove the account you are logged in as.
 
-HTTP base URLs are allowed only for `localhost` and literal private or loopback addresses, so a local model works. HTTPS is allowed for public hosts. Redirects are not followed. The dialer refuses link-local and metadata addresses.
+## Settings
 
-Keys are sealed with AES-256-GCM under `data/secret.key` before they are stored. The YAML file has no secrets. Keep `secret.key`. Without it, stored provider keys cannot be opened. Passwords are not under that key. They are stored as SCRAM-SHA-256 (PBKDF2-HMAC-SHA256, 600000 iterations by default).
+`airc.yaml` holds the server name, listen address, data directory, and limits. Account passwords and API keys are not in that file.
 
-The last admin cannot be removed or demoted. An admin cannot remove the account they are using.
+| Setting | Default | What it changes |
+| --- | --- | --- |
+| `server.listen` | `:6697` | TLS address |
+| `limits.replay` | `100` | Lines shown again when you rejoin |
+| `limits.context_messages` | `40` | Lines sent to the model |
+| `limits.provider_timeout` | `180s` | How long a reply may take |
+| `limits.auth_failures` | `5` | Failures from one address before a ban |
+| `limits.auth_ban` | `10m` | How long that ban lasts |
+| `limits.max_connections` | `1000` | Open connections |
 
-Nick names match `^[A-Za-z][A-Za-z0-9_\-]{0,31}$`. `airc`, `nickserv`, and `chanserv` are reserved.
+Provider keys live in the database, sealed with `data/secret.key`. Keep that file with the database. If you lose it, the stored API keys cannot be opened. Passwords are separate and can be reset with `airc reset-password`.
 
-## What the server speaks
+## Good to know
 
-Advertised when the client asks with `CAP LS 302`:
-
-| Capability | Behavior |
-| --- | --- |
-| `sasl=PLAIN,SCRAM-SHA-256` | Required. The value is sent only for CAP version 302. |
-| `message-tags`, `server-time`, `account-tag` | Tags on chat lines when the client enabled them. |
-| `echo-message` | The server sends your own message back to you. |
-| `batch` | History replay on join uses `batch` type `chathistory` when `message-tags` is also on. |
-| `labeled-response` | A label on a command is copied onto the replies for that command. |
-| `account-notify`, `away-notify`, `extended-join`, `multi-prefix`, `cap-notify` | Advertised. Caps are fixed once registration finishes. |
-
-History is the join replay of the last `replay` messages (default 100). There is no `CHATHISTORY` command. The model sees the last `context_messages` lines (default 40). Replies are split into short UTF-8 lines. Bytes that would break a line (`CR`, `LF`, `NUL`) are removed from each line, so model text cannot become a new IRC command.
-
-Intentionally absent:
-
-- server-to-server linking
-- ident
-- an operator console
-- DCC relay
-- open registration
-- a plaintext listener
-
-`ISUPPORT` includes `CASEMAPPING=ascii`, `CHANTYPES=#`, `PREFIX=(o)@`, `NETWORK=aIRC`, and `UTF8ONLY`.
-
-## Security
-
-- TLS 1.2 or newer is the only listener. The generated certificate is self-signed. Pin its fingerprint, or replace it.
-- `NICK` and `USER` without SASL, `PASS` alone, and `CAP END` before SASL all close the connection.
-- A bad password and an unknown account fail the same way. Unknown names still run the password derivation. The fake salt is a MAC of the on-disk key, so it stays stable across restarts.
-- Three SASL failures on one connection, or `auth_failures` (default 5) from one address, ban that address for `auth_ban` (default 10 minutes). The ban is in memory.
-- `data/` is mode `0700`. The database and `secret.key` are mode `0600`.
-- Logs record account names and, on auth failure, the client address. They do not record message bodies, `AUTHENTICATE` lines, passwords, or provider keys.
-- With `echo-message` enabled, the server sends your own `ai add` line back to your client. That line contains the key you just typed. It is not sent to anyone else.
-- Each session channel is visible only to its owner. `LIST`, `WHO`, `WHOIS`, and `NAMES` follow that rule. A join by anyone else gets `473`.
-- Provider calls use a 180 second timeout by default. Response bodies are capped at 2 MiB. Errors shown to users contain the status code, not the upstream body.
+- Login is SASL over TLS. A connection that never authenticates is closed.
+- A wrong password and an unknown account look the same to the client.
+- Three bad SASL attempts on one connection close it. Repeated failures from one address are banned in memory for the ban duration.
+- Logs record who connected and, on a failed login, the address. They do not record chat text, passwords, or API keys.
+- If your client has echo-message on, your own `ai add` line comes back to you, including the key you typed. It is not sent to anyone else.
+- A session channel does not appear in other people's channel lists. Joining someone else's session is refused.
+- There is no server linking, DCC, operator console, or ident. Clients that only need registration, private messages, and channels work.
+- Replies are split into short lines. Line breaks from the model stay as separate messages.
 
 ## Development
 
@@ -210,10 +199,6 @@ Intentionally absent:
 make test
 make build
 ```
-
-Tests use a temporary directory and do not create `./airc.yaml` or `./data` in the tree. `CGO_ENABLED=0` is enough. SQLite is `modernc.org/sqlite`.
-
-GitHub Actions runs `go test ./...` on push and pull request.
 
 ## License
 
